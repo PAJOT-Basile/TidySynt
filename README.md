@@ -18,7 +18,7 @@ Download and read the tutorial.
 
 # Example of what can be done
 
-![All_chromosomes](img/All_chromosomes.png)
+![All_chromosomes](./img/All_chromosomes.png)
 
 # References
   - [Li, H. (2018). Minimap2: pairwise alignment for nucleotide sequences. Bioinformatics, 34:3094-3100. doi:10.1093/bioinformatics/bty191](doi:10.1093/bioinformatics/bty191)
