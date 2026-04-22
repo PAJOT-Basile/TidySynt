@@ -1,6 +1,6 @@
 # TidySynt
 
-This is an R package used to produce make synteny plots using paf files. To see how to use this package, you can use the html tutorial that explains how to make the paf file using fasta files (for example with reference genomes). The idea is to run `minimap2` [(Li H, 2018)](https://doi.org/10.1093/bioinformatics/bty191) to produce paf files. In these files, we have some coordinates of sequences from one genome (the query) that map on another genome used as reference (the target). We use this format to produce some dotplots and synteny analyses and provide a package of functions that use the tidy format [(Wickham et al., 2019)](https://doi.org/10.21105/joss.01686).
+This is an R package used to make synteny plots using paf files. To see how to use this package, you can use the html tutorial that explains how to make the paf file using fasta files (for example with reference genomes). The idea is to run `minimap2` [(Li H, 2018)](https://doi.org/10.1093/bioinformatics/bty191) to produce paf files. In these files, we have some coordinates of sequences from one genome (the query) that map on another genome used as reference (the target). We use this format to produce some dotplots and synteny analyses and provide a package of functions that use the tidy format [(Wickham et al., 2019)](https://doi.org/10.21105/joss.01686).
 
 The traced plots are ggplot2 objects so you can modify everything in the way that you like (change the colours, remove the contours, ...)
 
