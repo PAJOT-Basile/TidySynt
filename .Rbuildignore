@@ -1,3 +1,6 @@
 ^TidySynt\.Rproj$
 ^\.Rproj\.user$
 ^data-raw$
+^\.positai$
+^\.claude$
+^\.Rmd
