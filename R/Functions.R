@@ -1981,7 +1981,9 @@ make_synteny_plot <- function(alignments, name_of_chromosomes,
                              unique())) %>%
     tidyr::pivot_longer(cols = c(qstart, qend, tstart, tend), names_to = "name", values_to = "delims_polygon") %>%
     tidyr::pivot_longer(cols = c(query, target), names_to = "direction", values_to = "Species") %>%
-    dplyr::filter((grepl("^q", name) & grepl("^q", direction)) | (grepl("^t", name) & grepl("^t", direction))) %>%
+    dplyr::filter((grepl("^q", name) & grepl("^q", direction)) | (grepl("^t", name) & grepl("^t", direction)))
+  print(p)
+  p <- p %>%
     unique() %>%
     dplyr::select(-Cumul_position_start_chromosome) %>%
     get_species_number_according_to_order(order_species) %>%
