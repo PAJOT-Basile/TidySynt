@@ -4,3 +4,7 @@
 ^\.positai$
 ^\.claude$
 ^\.Rmd
+^References.bib
+^Tutorial.Rmd
+^Tutorial.html
+^img

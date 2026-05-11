@@ -2075,6 +2075,13 @@ trace_dotplot <- function(alignments, name_of_chromosomes,
                           only_chromosome = NULL,
                           small_alignment_threshold = 5e4,
                           file_name = NULL){
+
+  # Get the number of colours to plot
+  nb_colours <- (name_of_chromosomes %>%
+                   dplyr::pull(Chromosome_name) %>%
+                   stringr::str_split_fixed(., "\\.", 2))[, 1] %>%
+    unique() %>%
+    length()
   # Isolate the name of the query species
   query_species <- alignments %>%
     dplyr::pull(query) %>%
@@ -2120,7 +2127,7 @@ trace_dotplot <- function(alignments, name_of_chromosomes,
                           dplyr::filter(Species == query_species),
                         ggplot2::aes(yintercept = Cumul_position_start_chromosome)) +
     ggplot2::scale_color_manual(name = "Chromosome",
-                                values = grDevices::rainbow(11)) +
+                                values = grDevices::rainbow(nb_colours)) +
     ggplot2::labs(x = target_species,
                   y = query_species) +
     ggplot2::guides(colour = ggplot2::guide_legend(override.aes = list(alpha = 1))) +
