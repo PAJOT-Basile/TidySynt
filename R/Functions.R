@@ -200,6 +200,8 @@ any_string_in_vector_contains_pattern <- function(pattern, vec_to_check){
 #' @param df This data frame has to contain the column `Chromosome`
 #' @param pattern This string is the pattern to look for in the `Chromosome`
 #' column
+#' @param colName String containing the name of the column in which to look for
+#' the pattern.
 #'
 #' @returns Boolean: `TRUE` if the chromosome name contains the pattern and
 #' `FALSE` otherwise
@@ -208,42 +210,15 @@ any_string_in_vector_contains_pattern <- function(pattern, vec_to_check){
 #' @examples
 #' df1 <- data.frame("Chromosome" = c("Chrom_1", "Chrom_2", "Chrom_3"), "Length" = c(10, 20, 250))
 #' df1
-#' chrom_name_contains_pattern(df1, "_")
-chrom_name_contains_pattern <- function(df, pattern){
-  string <- df$Chromosome[1]
+#' chrom_name_contains_pattern(df1, "_", "Chromosome")
+chrom_name_contains_pattern <- function(df, pattern, colName){
+  string <- df[[colName]][1]
   return(grepl(pattern, string))
 }
 
 #################################
 ########## Import data ##########
 #################################
-#' Imports the lengths of the chromosomes using the ".dict" file from the
-#' reference genome indexing.
-#'
-#' @description
-#' This function takes as input the path to the ".dict" file
-#' obtained when the reference genome is indexed and keeps only the name
-#' of the chromosome and its length.
-#'
-#' @param path This string of characters is the path to the ".dict" file
-#'
-#' @returns A table containing the name and length of each chromosomes.
-#' @export
-#' @importFrom magrittr "%>%"
-#'
-#' @examples
-#' dict_file <- "TidySynt/extdata/refgenome/Jaera_albifrons_chromosomes.dict"
-#' import_chromosome_length_from_dict(dict_file)
-import_chromosome_length_from_dict <- function(path){
-  utils::read.table(path, skip = 1) %>%
-    dplyr::select(V2, V3) %>%
-    dplyr::rename(Chromosome = V2,
-                  Length = V3) %>%
-    dplyr::mutate(across(everything(), ~ stringr::str_split_fixed(., ":", 2)[, 2]),
-                  Length = as.numeric(Length)) %>%
-    return()
-}
-
 #' Imports the lengths of the chromosomes using the ".fai" file from the
 #' reference genome indexing using `samtools`.
 #'
@@ -274,10 +249,12 @@ import_chromosome_length_from_fai <- function(path){
 #'
 #' @description
 #' This function allows to import the names and lengths of chromosomes from
-#' ".dict" or ".fai" files. It also allows to simplify names of chromosomes
-#' that might have a dot or a vertical line ("|").
+#' .fai" files. It also allows to simplify names of chromosomes that might have
+#' a dot or a vertical line ("|").
 #'
-#' @param path Path to where the file is stored.
+#' @param path Path to where the reference genome is stored.
+#' @param df The data frame containing the names of the species and the paths to
+#' the reference genomes of these species. Default = `NULL`.
 #'
 #' @returns A data frame containing the name of the chromosome in one column
 #' and its length in the other.
@@ -286,90 +263,41 @@ import_chromosome_length_from_fai <- function(path){
 #'
 #' @examples
 #' fai_file <- "TidySynt/extdata/refgenome/Jaera_albifrons_chromosomes.fasta.fai"
-#' dict_file <- "TidySynt/extdata/refgenome/Jaera_albifrons_chromosomes.dict"
 #'
 #' import_chromosome_length(fai_file)
-#' import_chromosome_length(dict_file)
-import_chromosome_length <- function(path){
-  # First, we get the file extension
-  split_path <- stringr::str_split_1(path, "\\.")
-  file_type <- split_path[length(split_path)]
-  # Depending on the file extension, we import different columns
-  if (file_type == "dict"){
-    raw_file <- import_chromosome_length_from_dict(path)
-  }else if (file_type == "fai"){
-    raw_file <- import_chromosome_length_from_fai(path)
-  }
-
+import_chromosome_length <- function(path, df=NULL){
+  path_fai <- ifelse(!is.null(df), paste0(path, ".fai"), path)
+  raw_file <- import_chromosome_length_from_fai(path_fai)
   # Then, we simplify the names of the chromosomes depending on the special
   # characters contained in the name of the chromosomes
-  if (chrom_name_contains_pattern(raw_file, "\\|")){
+  if (chrom_name_contains_pattern(raw_file, "\\|", "Chromosome")){
     raw_file <- raw_file %>%
       dplyr::mutate(Chromosome = stringr::str_split_fixed(Chromosome, "\\|", 3)[, 2])
-  }else if (chrom_name_contains_pattern(raw_file, "\\.")){
+  }else if (chrom_name_contains_pattern(raw_file, "\\.", "Chromosome")){
     raw_file <- raw_file %>%
       dplyr::mutate(Chromosome = stringr::str_split_fixed(Chromosome, "\\.", 2)[, 1])
   }
+  if (!is.null(df)){
+      # Get the species name for the corresponding path
+    species <- df %>%
+      dplyr::filter(paths == path) %>%
+      dplyr::pull(Species)
 
+    raw_file <- raw_file %>%
+      dplyr::mutate(Species = species)
+  }
   # And we return the file
   return(raw_file)
-}
-
-#' Add the name of the species to the list containing the names and lengths of
-#' chromosomes.
-#'
-#' @description
-#' This function uses the list of files to import to know which level of the
-#' list containing a data frame with the name and length of the chromosomes
-#' to consider. Once this is done, it adds the name of the species to the
-#' corresponding table of the input list.
-#'
-#' @param path This string contains the path to the file to consider (one file
-#' for one species).
-#' @param list_chromosome_lengths  List containing one level for each species.
-#' Each level contains one data frame with the name and length of the chromosomes
-#' of this species.
-#' @param vect_files_to_import This vector contains all the paths to use to
-#' import the chromosome names and lengths.
-#'
-#' @returns A data frame containing the names and lengths of chromosomes for
-#' one species with the name of the species inside it.
-#' @export
-#' @importFrom magrittr "%>%"
-#'
-#' @examples
-#' add_name_species_in_importation("Jaera_albifrons_chromosomes.fasta.fai",
-#'                                 list(data.frame(
-#'                                      "Chromosome" = c("Chrom_1", "Chrom_2"),
-#'                                      "Length" = c(10, 20)),
-#'                                      data.frame(
-#'                                      "Chromosome" = c("Chrom_1", "Chrom_2"),
-#'                                      "Length" = c(12, 25))
-#'                                      ),
-#'                                 c("Jaera_albifrons_chromosomes.fasta.fai",
-#'                                 "Jaera_praehirsuta_chromosomes.fasta.fai"))
-add_name_species_in_importation <- function(path, list_chromosome_lengths, vect_files_to_import){
-  # Get the name of the species
-  split_path <- stringr::str_split_1(path, "/")
-  name_of_file <- split_path[length(split_path)]
-  name_of_species <- stringr::str_split_1(name_of_file, "\\.")[1]
-
-  # Get the position of the path in the list
-  index_species <- which(path == vect_files_to_import)
-
-  # Add the name of the species to the right level of the list
-  list_chromosome_lengths[[index_species]]$Species <- name_of_species
-
-  return(list_chromosome_lengths[[index_species]])
 }
 
 #' Import the chromosome lengths for all files from one folder
 #'
 #' @description
 #' This function imports all the lengths of chromosomes from all the "fai" or
-#' "dict" files in a directory
+#' files in a directory
 #'
-#' @param dir_name Path to the directory that contains the "dict" or "fai" files
+#' @param paths_to_genomes Data frame containing the paths to the reference genomes
+#' and the names of the species to which the reference genomes correspond.
 #' @param preferences default = `"fai"`. This string allows the function to know
 #' if it should import preferentially the lengths from the `fai` or the `dict`
 #' files.
@@ -380,21 +308,22 @@ add_name_species_in_importation <- function(path, list_chromosome_lengths, vect_
 #' @importFrom magrittr "%>%"
 #'
 #' @examples
-#' import_chromosome_lengths_for_all_files_of_folder("TidySynt/extdata/refgenome/",
-#'                                                   preferences = "fai")
-#' import_chromosome_lengths_for_all_files_of_folder("TidySynt/extdata/refgenome/",
-#'                                                   preferences = "dict")
-import_chromosome_lengths_for_all_files_of_folder <- function(dir_name, preferences = "fai"){
-  # Get the extension of the files to get the chromosome lengths from
-  files_to_select <- paste0(preferences, "$")
-  # Get the list of the files to get the chromosome lengths from
-  vect_files_to_import <- list.files(dir_name, pattern = files_to_select) %>%
-    paste0(dir_name, .)
-
+#' data(paths_to_genomes)
+#' paths_to_genomes
+#'
+#' import_all_chromosome_lengths(paths_to_genomes)
+import_all_chromosome_lengths <- function(paths_to_genomes){
+  if ("Species" %not_in% names(paths_to_genomes)){
+    stop("Please make sure that you have the name of the species is specified in the column named 'Species' in the provided data frame.")
+  }
+  if ("paths" %not_in% names(paths_to_genomes)){
+    stop("Please make sure that you provided paths to the reference genomes in the 'path' column of the provided data frame.")
+  }
+  if (any(!file.exists(paths_to_genomes$paths))){
+    stop("Please make sure that the specified paths exist.")
+  }
   # Import all the files that are listed
-  lapply(vect_files_to_import, import_chromosome_length) %>%
-    # And add the names of the species to the tables
-    lapply(vect_files_to_import, add_name_species_in_importation, ., vect_files_to_import) %>%
+  lapply(paths_to_genomes$paths, import_chromosome_length, paths_to_genomes) %>%
     dplyr::bind_rows() %>%
     return()
 }
@@ -415,6 +344,9 @@ import_chromosome_lengths_for_all_files_of_folder <- function(dir_name, preferen
 #' @examples
 #' import_paf("TidySynt/extdata/paf/albifrons_aligned_on_praehirsuta.paf")
 import_paf <- function(path){
+  if (!file.exists(path)){
+    stop(paste("Please make sure that the following path exists:", path))
+  }
   pafr::read_paf(path) %>%
     plyr::ldply() %>%
     tibble::column_to_rownames(".id") %>%
@@ -433,8 +365,8 @@ import_paf <- function(path){
 #' supplementary step is that the names of the species (query and target) are
 #' added to the table.
 #'
-#' @param dir_name A string containing the name of the directory in which to
-#' look for `paf` files.
+#' @param dir_name A string or a data frame containing the name of the directory
+#' or a column (named `paths`) with the paths to the `paf` files.
 #'
 #' @returns A data frame containing all the stats and coordinates of the mapping
 #' sequences along the chromosomes of the query and target species.
@@ -444,21 +376,44 @@ import_paf <- function(path){
 #' @examples
 #' import_paf_from_folder("TidySynt/extdata/paf/")
 import_paf_from_folder <- function(dir_name){
-  # Make a vector containing the names of the paf files to import
-  vect_paf_files <- list.files(dir_name, pattern = ".paf$") %>%
-    paste0(dir_name, .)
+  # Verify if the path exists
+  if (!is.data.frame(dir_name)){
+    if (!dir.exists(dir_name)){
+      stop(paste("The provided path", dir_name, "does not seem to exist. Please make sure that the provided path exists."))
+    }
 
-  # Get the names of the query and target species for all the files
-  paths_split <- stringr::str_split_fixed(vect_paf_files, "/", Inf)
-  names_queries <- stringr::str_split_fixed(paths_split[, ncol(paths_split)],
-                                            "_", 2)[, 1]
-  paths_split_reduced <- paths_split[, ncol(paths_split)] %>%
-    stringr::str_remove_all("aligned_on_") %>%
-    stringr::str_split_fixed("_", 2)
-  names_targets <- stringr::str_split_fixed(paths_split_reduced[, 2], "\\.", 2)[, 1]
+    # Make a vector containing the names of the paf files to import
+    vect_paf_files <- list.files(dir_name, pattern = ".paf$") %>%
+      paste0(dir_name, .)
+
+    # Get the names of the query and target species for all the files
+    paths_split <- stringr::str_split_fixed(vect_paf_files, "/", Inf)
+    names_queries <- stringr::str_split_fixed(paths_split[, ncol(paths_split)],
+                                              "_", 2)[, 1]
+    paths_split_reduced <- paths_split[, ncol(paths_split)] %>%
+      stringr::str_remove_all("aligned_on_") %>%
+      stringr::str_split_fixed("_", 2)
+    names_targets <- stringr::str_split_fixed(paths_split_reduced[, 2], "\\.", 2)[, 1]
+
+  }else{
+    if ("paths" %not_in% names(dir_name)){
+      stop("Please make sure that the provided data frame contains the column 'paths'.")
+    }
+    if (any(c("reference_species", "aligned_species") %not_in% names(dir_name))){
+      stop("Please make sure that the names of the species are provided in the columns named 'reference_species' and 'aligned_species'.")
+    }
+    if (!all(file.exists(dir_name$paths))){
+      non_existing_paths <- dir_names$paths[!file.exists(dir_name$paths)]
+      stop(paste("Please make sure that the provided paths exist. The following paths do not seem to exist:", paste(non_existing_paths, collapse = ", ")))
+    }
+
+    vect_paf_files <- dir_name$paths
+    names_queries <- dir_name$aligned_species
+    names_targets <- dir_name$reference_species
+  }
 
   # Import the paf files
-  lapply(vect_paf_files, import_paf) %>%
+  paf_files <- lapply(vect_paf_files, import_paf) %>%
     # And add the names of the species (query and target) to the tables
     lapply(names_queries, function(name_query, list_vect_files, names_queries, names_targets){
       index_query <- which(name_query == names_queries)
@@ -469,8 +424,18 @@ import_paf_from_folder <- function(dir_name){
     }, .,
     names_queries,
     names_targets) %>%
-    dplyr::bind_rows() %>%
-    return()
+    dplyr::bind_rows()
+
+  # Rename the chromosomes depending on the patterns inside of the names (either dots or vertical bars)
+  if (chrom_name_contains_pattern(paf_files, "\\|", "qname") | chrom_name_contains_pattern(paf_files, "\\|", "tname")){
+    paf_files <- paf_files %>%
+      dplyr::mutate(across(contains("name"), ~ stringr::str_split_fixed(., "\\|", 3)[, 2]))
+  }else if (chrom_name_contains_pattern(paf_files, "\\.", "qname") | chrom_name_contains_pattern(paf_files, "\\.", "tname")){
+    paf_files <- paf_files %>%
+      dplyr::mutate(across(contains("name"), ~ stringr::str_split_fixed(., "\\.", 2)[, 1]))
+  }
+
+  return(paf_files)
 }
 
 #################################
@@ -2007,7 +1972,7 @@ make_synteny_plot <- function(alignments, name_of_chromosomes,
   p <- p +
     ggplot2::geom_rect(data = delimitations_chromosomes,
                        ggplot2::aes(xmin = start_chrom, xmax = End_chromosome,
-                           ymin = nb_species - 0.001, ymax = nb_species + 0.001,
+                           ymin = nb_species - 0.05, ymax = nb_species + 0.05,
                            fill = Chromosome_name, group = Group_id),
                        colour = "black", lwd = 1.2, linejoin = "round", lineend = "round") +
     # We finish the plot with the names of the chromosomes
