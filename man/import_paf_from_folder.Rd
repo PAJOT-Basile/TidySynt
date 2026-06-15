@@ -8,8 +8,8 @@ table.}
 import_paf_from_folder(dir_name)
 }
 \arguments{
-\item{dir_name}{A string containing the name of the directory in which to
-look for \code{paf} files.}
+\item{dir_name}{A string or a data frame containing the name of the directory
+or a column (named \code{paths}) with the paths to the \code{paf} files.}
 }
 \value{
 A data frame containing all the stats and coordinates of the mapping

@@ -9,7 +9,8 @@ rename_fissionned_chroms(
   chromosome_name,
   temp_names_for_sp,
   all_alignments,
-  chromosome_correspondences
+  chromosome_correspondences,
+  ref_species
 )
 }
 \arguments{
@@ -26,6 +27,8 @@ function.}
 \item{chromosome_correspondences}{This data frame contains the
 correspondences between the chromosomes of the focal species and the
 reference species.}
+
+\item{ref_species}{Name of the species used as reference to name the chromosomes.}
 }
 \value{
 A data frame containing the new names of the fissionned chromosomes

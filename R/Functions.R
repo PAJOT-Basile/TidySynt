@@ -298,9 +298,6 @@ import_chromosome_length <- function(path, df=NULL){
 #'
 #' @param paths_to_genomes Data frame containing the paths to the reference genomes
 #' and the names of the species to which the reference genomes correspond.
-#' @param preferences default = `"fai"`. This string allows the function to know
-#' if it should import preferentially the lengths from the `fai` or the `dict`
-#' files.
 #'
 #' @returns A data frame containing the names of the species, the names of the
 #' chromosomes when assembled and the lengths of the chromosomes.
@@ -756,6 +753,10 @@ get_chromosome_names_all_species <- function(all_chromosomes, correspondences_ch
 #' the name of the chromosomes that was given to them when they were
 #' assembled, the length of the chromosomes and the species to which the
 #' chromosomes belong.
+#' @param correspondences_chromosomes This data frame contains four columns:
+#' the species of the query and target species and the names of the corresponding
+#' chromosomes from these two species. This table is the output of the `get_corresponding_chromosomes_species`
+#' function.
 #' @param prefix This string is the beginning of the name of the chromosomes.
 #' Its default is "Chrom" to have "Chrom_1", ..., but it can be changed to
 #' any string. Usual ones are "Chr", "Chrom" or "LG".
@@ -805,16 +806,16 @@ define_reference_for_chromosome_naming <- function(all_chromosomes, corresponden
       name_column_corresp_chromosome <- ifelse(name_column_ref_chromosome == "tname", "qname", "tname")
 
       corresponding_chromosome_name <- correspondence_chroms %>%
-        dplyr::filter(!!sym(name_column_ref_chromosome) == chrom) %>%
+        dplyr::filter(!!rlang::sym(name_column_ref_chromosome) == chrom) %>%
         # Take only at maximum one corresponding chromosome. As we are looking
         # only if the chromosome is split in two in the reference, the other
         # direction will be adressed later in the pipeline.
         dplyr::slice(1) %>%
-        dplyr::pull(!!sym(name_column_corresp_chromosome))
+        dplyr::pull(!!rlang::sym(name_column_corresp_chromosome))
 
 
       nb_chrom_correspondences <- correspondences_chromosomes %>%
-        dplyr::filter(!!sym(name_column_corresp_chromosome) == corresponding_chromosome_name) %>%
+        dplyr::filter(!!rlang::sym(name_column_corresp_chromosome) == corresponding_chromosome_name) %>%
         nrow()
 
       if (nb_chrom_correspondences > 1){
@@ -1074,6 +1075,7 @@ get_chromosome_names_using_reference <- function(correspondences_chromosomes, re
 #' reference species.
 #' @param all_alignments This data frame contains all the coordinates of the aligned
 #' genomes on one another.
+#' @param ref_species Name of the species used as reference to name chromosomes.
 #'
 #' @returns A data frame that contains the new names of the chromosomes for all
 #' chromosomes for all species.
@@ -1128,6 +1130,7 @@ rename_chromosomes_after_calling <- function(temp_names_chroms, chromosome_corre
 #' reference species.
 #' @param all_alignments This data frame contains all the coordinates of the aligned
 #' genomes on one another.
+#' @param ref_species Name of the species used as reference for the analysis.
 #'
 #' @returns A data frame containing the new names of the chromosomes for the
 #' focal species.
@@ -1209,6 +1212,7 @@ rename_chrom_for_one_species <- function(species_name, temp_names_chroms, chromo
 #' @param chromosome_correspondences This data frame contains the
 #' correspondences between the chromosomes of the focal species and the
 #' reference species.
+#' @param ref_species Name of the species used as reference to name the chromosomes.
 #'
 #' @return A data frame containing the new names of the fissionned chromosomes
 #' @export
@@ -1334,6 +1338,7 @@ rename_fused_chromosomes <- function(assembly_name, temp_names_for_sp){
 #' @param chromosome_correspondences This data frame contains the correspondences
 #' between chromosomes of the two species. It is the output of the `get_corresponding_chromosomes_species`
 #' function.
+#' @param ref_species Name of the species used as reference to name the chromosomes.
 #'
 #' @returns A data frame containing the new names of the chromosomes
 #' @export
@@ -1382,13 +1387,13 @@ rename_portions_of_chromosomes_fusion <- function(temp_names_for_sp_for_chr, all
   column_on_which_to_do_computation <- ifelse(grepl("t", column_to_fuse_on), "qstart", "tstart")
 
   positions_to_where_chroms_map <- temp_names_for_sp_for_chr %>%
-    dplyr::left_join(chromosome_correspondences, by = dplyr::join_by("Chromosome" == !!sym(column_to_fuse_on))) %>%
-    dplyr::left_join(all_alignments, by = dplyr::join_by("Chromosome" == !!sym(column_to_fuse_on), !!sym(other_column), "query", "target")) %>%
-    dplyr::group_by(Chromosome, !!sym(other_column), query, target) %>%
-    dplyr::summarize(mean_map = mean(!!sym(column_on_which_to_do_computation), na.rm = TRUE),
+    dplyr::left_join(chromosome_correspondences, by = dplyr::join_by("Chromosome" == !!rlang::sym(column_to_fuse_on))) %>%
+    dplyr::left_join(all_alignments, by = dplyr::join_by("Chromosome" == !!rlang::sym(column_to_fuse_on), !!rlang::sym(other_column), "query", "target")) %>%
+    dplyr::group_by(Chromosome, !!rlang::sym(other_column), query, target) %>%
+    dplyr::summarize(mean_map = mean(!!rlang::sym(column_on_which_to_do_computation), na.rm = TRUE),
                      .groups = "drop_last") %>%
     dplyr::ungroup() %>%
-    dplyr::rename(!!sym(column_to_fuse_on) := Chromosome)
+    dplyr::rename(!!rlang::sym(column_to_fuse_on) := Chromosome)
 
   # We get the names of the considered chromosomes (both the name given in the
   # analysis and the names given in the assembly)
@@ -1398,11 +1403,11 @@ rename_portions_of_chromosomes_fusion <- function(temp_names_for_sp_for_chr, all
 
   name_first_chrom_assembly <- positions_to_where_chroms_map %>%
     dplyr::filter(mean_map == min(mean_map)) %>%
-    dplyr::pull(!!sym(column_to_fuse_on))
+    dplyr::pull(!!rlang::sym(column_to_fuse_on))
 
   name_second_chrom_assembly <- positions_to_where_chroms_map %>%
     dplyr::filter(mean_map == max(mean_map)) %>%
-    dplyr::pull(!!sym(column_to_fuse_on))
+    dplyr::pull(!!rlang::sym(column_to_fuse_on))
 
   # Then, we consider how to rename the chromosomes given their original name
   if (name_first_chrom_assembly != name_second_chrom_assembly){

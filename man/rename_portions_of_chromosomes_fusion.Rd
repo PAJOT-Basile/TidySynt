@@ -8,7 +8,8 @@ in different species (especially the case for fusions/fissions of chromosomes).}
 rename_portions_of_chromosomes_fusion(
   temp_names_for_sp_for_chr,
   all_alignments,
-  chromosome_correspondences
+  chromosome_correspondences,
+  ref_species
 )
 }
 \arguments{
@@ -22,6 +23,8 @@ two species.}
 \item{chromosome_correspondences}{This data frame contains the correspondences
 between chromosomes of the two species. It is the output of the \code{get_corresponding_chromosomes_species}
 function.}
+
+\item{ref_species}{Name of the species used as reference to name the chromosomes.}
 }
 \value{
 A data frame containing the new names of the chromosomes
