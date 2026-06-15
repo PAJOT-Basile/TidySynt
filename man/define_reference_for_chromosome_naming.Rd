@@ -4,13 +4,22 @@
 \alias{define_reference_for_chromosome_naming}
 \title{Define a reference species and chromosome names for the chromosome naming}
 \usage{
-define_reference_for_chromosome_naming(all_chromosomes, prefix = "Chrom")
+define_reference_for_chromosome_naming(
+  all_chromosomes,
+  correspondences_chromosomes = NULL,
+  prefix = "Chrom"
+)
 }
 \arguments{
 \item{all_chromosomes}{This data frame contains at least three columns:
 the name of the chromosomes that was given to them when they were
 assembled, the length of the chromosomes and the species to which the
 chromosomes belong.}
+
+\item{correspondences_chromosomes}{This data frame contains four columns:
+the species of the query and target species and the names of the corresponding
+chromosomes from these two species. This table is the output of the \code{get_corresponding_chromosomes_species}
+function.}
 
 \item{prefix}{This string is the beginning of the name of the chromosomes.
 Its default is "Chrom" to have "Chrom_1", ..., but it can be changed to

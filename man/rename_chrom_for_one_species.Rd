@@ -8,7 +8,8 @@ rename_chrom_for_one_species(
   species_name,
   temp_names_chroms,
   chromosome_correspondences,
-  all_alignments
+  all_alignments,
+  ref_species
 )
 }
 \arguments{
@@ -23,6 +24,8 @@ reference species.}
 
 \item{all_alignments}{This data frame contains all the coordinates of the aligned
 genomes on one another.}
+
+\item{ref_species}{Name of the species used as reference for the analysis.}
 }
 \value{
 A data frame containing the new names of the chromosomes for the

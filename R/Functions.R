@@ -200,6 +200,8 @@ any_string_in_vector_contains_pattern <- function(pattern, vec_to_check){
 #' @param df This data frame has to contain the column `Chromosome`
 #' @param pattern This string is the pattern to look for in the `Chromosome`
 #' column
+#' @param colName String containing the name of the column in which to look for
+#' the pattern.
 #'
 #' @returns Boolean: `TRUE` if the chromosome name contains the pattern and
 #' `FALSE` otherwise
@@ -208,42 +210,15 @@ any_string_in_vector_contains_pattern <- function(pattern, vec_to_check){
 #' @examples
 #' df1 <- data.frame("Chromosome" = c("Chrom_1", "Chrom_2", "Chrom_3"), "Length" = c(10, 20, 250))
 #' df1
-#' chrom_name_contains_pattern(df1, "_")
-chrom_name_contains_pattern <- function(df, pattern){
-  string <- df$Chromosome[1]
+#' chrom_name_contains_pattern(df1, "_", "Chromosome")
+chrom_name_contains_pattern <- function(df, pattern, colName){
+  string <- df[[colName]][1]
   return(grepl(pattern, string))
 }
 
 #################################
 ########## Import data ##########
 #################################
-#' Imports the lengths of the chromosomes using the ".dict" file from the
-#' reference genome indexing.
-#'
-#' @description
-#' This function takes as input the path to the ".dict" file
-#' obtained when the reference genome is indexed and keeps only the name
-#' of the chromosome and its length.
-#'
-#' @param path This string of characters is the path to the ".dict" file
-#'
-#' @returns A table containing the name and length of each chromosomes.
-#' @export
-#' @importFrom magrittr "%>%"
-#'
-#' @examples
-#' dict_file <- "TidySynt/extdata/refgenome/Jaera_albifrons_chromosomes.dict"
-#' import_chromosome_length_from_dict(dict_file)
-import_chromosome_length_from_dict <- function(path){
-  utils::read.table(path, skip = 1) %>%
-    dplyr::select(V2, V3) %>%
-    dplyr::rename(Chromosome = V2,
-                  Length = V3) %>%
-    dplyr::mutate(across(everything(), ~ stringr::str_split_fixed(., ":", 2)[, 2]),
-                  Length = as.numeric(Length)) %>%
-    return()
-}
-
 #' Imports the lengths of the chromosomes using the ".fai" file from the
 #' reference genome indexing using `samtools`.
 #'
@@ -274,10 +249,12 @@ import_chromosome_length_from_fai <- function(path){
 #'
 #' @description
 #' This function allows to import the names and lengths of chromosomes from
-#' ".dict" or ".fai" files. It also allows to simplify names of chromosomes
-#' that might have a dot or a vertical line ("|").
+#' .fai" files. It also allows to simplify names of chromosomes that might have
+#' a dot or a vertical line ("|").
 #'
-#' @param path Path to where the file is stored.
+#' @param path Path to where the reference genome is stored.
+#' @param df The data frame containing the names of the species and the paths to
+#' the reference genomes of these species. Default = `NULL`.
 #'
 #' @returns A data frame containing the name of the chromosome in one column
 #' and its length in the other.
@@ -286,93 +263,41 @@ import_chromosome_length_from_fai <- function(path){
 #'
 #' @examples
 #' fai_file <- "TidySynt/extdata/refgenome/Jaera_albifrons_chromosomes.fasta.fai"
-#' dict_file <- "TidySynt/extdata/refgenome/Jaera_albifrons_chromosomes.dict"
 #'
 #' import_chromosome_length(fai_file)
-#' import_chromosome_length(dict_file)
-import_chromosome_length <- function(path){
-  # First, we get the file extension
-  split_path <- stringr::str_split_1(path, "\\.")
-  file_type <- split_path[length(split_path)]
-  # Depending on the file extension, we import different columns
-  if (file_type == "dict"){
-    raw_file <- import_chromosome_length_from_dict(path)
-  }else if (file_type == "fai"){
-    raw_file <- import_chromosome_length_from_fai(path)
-  }
-
+import_chromosome_length <- function(path, df=NULL){
+  path_fai <- ifelse(!is.null(df), paste0(path, ".fai"), path)
+  raw_file <- import_chromosome_length_from_fai(path_fai)
   # Then, we simplify the names of the chromosomes depending on the special
   # characters contained in the name of the chromosomes
-  if (chrom_name_contains_pattern(raw_file, "\\|")){
+  if (chrom_name_contains_pattern(raw_file, "\\|", "Chromosome")){
     raw_file <- raw_file %>%
       dplyr::mutate(Chromosome = stringr::str_split_fixed(Chromosome, "\\|", 3)[, 2])
-  }else if (chrom_name_contains_pattern(raw_file, "\\.")){
+  }else if (chrom_name_contains_pattern(raw_file, "\\.", "Chromosome")){
     raw_file <- raw_file %>%
       dplyr::mutate(Chromosome = stringr::str_split_fixed(Chromosome, "\\.", 2)[, 1])
   }
+  if (!is.null(df)){
+      # Get the species name for the corresponding path
+    species <- df %>%
+      dplyr::filter(paths == path) %>%
+      dplyr::pull(Species)
 
+    raw_file <- raw_file %>%
+      dplyr::mutate(Species = species)
+  }
   # And we return the file
   return(raw_file)
-}
-
-#' Add the name of the species to the list containing the names and lengths of
-#' chromosomes.
-#'
-#' @description
-#' This function uses the list of files to import to know which level of the
-#' list containing a data frame with the name and length of the chromosomes
-#' to consider. Once this is done, it adds the name of the species to the
-#' corresponding table of the input list.
-#'
-#' @param path This string contains the path to the file to consider (one file
-#' for one species).
-#' @param list_chromosome_lengths  List containing one level for each species.
-#' Each level contains one data frame with the name and length of the chromosomes
-#' of this species.
-#' @param vect_files_to_import This vector contains all the paths to use to
-#' import the chromosome names and lengths.
-#'
-#' @returns A data frame containing the names and lengths of chromosomes for
-#' one species with the name of the species inside it.
-#' @export
-#' @importFrom magrittr "%>%"
-#'
-#' @examples
-#' add_name_species_in_importation("Jaera_albifrons_chromosomes.fasta.fai",
-#'                                 list(data.frame(
-#'                                      "Chromosome" = c("Chrom_1", "Chrom_2"),
-#'                                      "Length" = c(10, 20)),
-#'                                      data.frame(
-#'                                      "Chromosome" = c("Chrom_1", "Chrom_2"),
-#'                                      "Length" = c(12, 25))
-#'                                      ),
-#'                                 c("Jaera_albifrons_chromosomes.fasta.fai",
-#'                                 "Jaera_praehirsuta_chromosomes.fasta.fai"))
-add_name_species_in_importation <- function(path, list_chromosome_lengths, vect_files_to_import){
-  # Get the name of the species
-  split_path <- stringr::str_split_1(path, "/")
-  name_of_file <- split_path[length(split_path)]
-  name_of_species <- stringr::str_split_1(name_of_file, "\\.")[1]
-
-  # Get the position of the path in the list
-  index_species <- which(path == vect_files_to_import)
-
-  # Add the name of the species to the right level of the list
-  list_chromosome_lengths[[index_species]]$Species <- name_of_species
-
-  return(list_chromosome_lengths[[index_species]])
 }
 
 #' Import the chromosome lengths for all files from one folder
 #'
 #' @description
 #' This function imports all the lengths of chromosomes from all the "fai" or
-#' "dict" files in a directory
+#' files in a directory
 #'
-#' @param dir_name Path to the directory that contains the "dict" or "fai" files
-#' @param preferences default = `"fai"`. This string allows the function to know
-#' if it should import preferentially the lengths from the `fai` or the `dict`
-#' files.
+#' @param paths_to_genomes Data frame containing the paths to the reference genomes
+#' and the names of the species to which the reference genomes correspond.
 #'
 #' @returns A data frame containing the names of the species, the names of the
 #' chromosomes when assembled and the lengths of the chromosomes.
@@ -380,21 +305,22 @@ add_name_species_in_importation <- function(path, list_chromosome_lengths, vect_
 #' @importFrom magrittr "%>%"
 #'
 #' @examples
-#' import_chromosome_lengths_for_all_files_of_folder("TidySynt/extdata/refgenome/",
-#'                                                   preferences = "fai")
-#' import_chromosome_lengths_for_all_files_of_folder("TidySynt/extdata/refgenome/",
-#'                                                   preferences = "dict")
-import_chromosome_lengths_for_all_files_of_folder <- function(dir_name, preferences = "fai"){
-  # Get the extension of the files to get the chromosome lengths from
-  files_to_select <- paste0(preferences, "$")
-  # Get the list of the files to get the chromosome lengths from
-  vect_files_to_import <- list.files(dir_name, pattern = files_to_select) %>%
-    paste0(dir_name, .)
-
+#' data(paths_to_genomes)
+#' paths_to_genomes
+#'
+#' import_all_chromosome_lengths(paths_to_genomes)
+import_all_chromosome_lengths <- function(paths_to_genomes){
+  if ("Species" %not_in% names(paths_to_genomes)){
+    stop("Please make sure that you have the name of the species is specified in the column named 'Species' in the provided data frame.")
+  }
+  if ("paths" %not_in% names(paths_to_genomes)){
+    stop("Please make sure that you provided paths to the reference genomes in the 'path' column of the provided data frame.")
+  }
+  if (any(!file.exists(paths_to_genomes$paths))){
+    stop("Please make sure that the specified paths exist.")
+  }
   # Import all the files that are listed
-  lapply(vect_files_to_import, import_chromosome_length) %>%
-    # And add the names of the species to the tables
-    lapply(vect_files_to_import, add_name_species_in_importation, ., vect_files_to_import) %>%
+  lapply(paths_to_genomes$paths, import_chromosome_length, paths_to_genomes) %>%
     dplyr::bind_rows() %>%
     return()
 }
@@ -415,6 +341,9 @@ import_chromosome_lengths_for_all_files_of_folder <- function(dir_name, preferen
 #' @examples
 #' import_paf("TidySynt/extdata/paf/albifrons_aligned_on_praehirsuta.paf")
 import_paf <- function(path){
+  if (!file.exists(path)){
+    stop(paste("Please make sure that the following path exists:", path))
+  }
   pafr::read_paf(path) %>%
     plyr::ldply() %>%
     tibble::column_to_rownames(".id") %>%
@@ -433,8 +362,8 @@ import_paf <- function(path){
 #' supplementary step is that the names of the species (query and target) are
 #' added to the table.
 #'
-#' @param dir_name A string containing the name of the directory in which to
-#' look for `paf` files.
+#' @param dir_name A string or a data frame containing the name of the directory
+#' or a column (named `paths`) with the paths to the `paf` files.
 #'
 #' @returns A data frame containing all the stats and coordinates of the mapping
 #' sequences along the chromosomes of the query and target species.
@@ -444,21 +373,44 @@ import_paf <- function(path){
 #' @examples
 #' import_paf_from_folder("TidySynt/extdata/paf/")
 import_paf_from_folder <- function(dir_name){
-  # Make a vector containing the names of the paf files to import
-  vect_paf_files <- list.files(dir_name, pattern = ".paf$") %>%
-    paste0(dir_name, .)
+  # Verify if the path exists
+  if (!is.data.frame(dir_name)){
+    if (!dir.exists(dir_name)){
+      stop(paste("The provided path", dir_name, "does not seem to exist. Please make sure that the provided path exists."))
+    }
 
-  # Get the names of the query and target species for all the files
-  paths_split <- stringr::str_split_fixed(vect_paf_files, "/", Inf)
-  names_queries <- stringr::str_split_fixed(paths_split[, ncol(paths_split)],
-                                            "_", 2)[, 1]
-  paths_split_reduced <- paths_split[, ncol(paths_split)] %>%
-    stringr::str_remove_all("aligned_on_") %>%
-    stringr::str_split_fixed("_", 2)
-  names_targets <- stringr::str_split_fixed(paths_split_reduced[, 2], "\\.", 2)[, 1]
+    # Make a vector containing the names of the paf files to import
+    vect_paf_files <- list.files(dir_name, pattern = ".paf$") %>%
+      paste0(dir_name, .)
+
+    # Get the names of the query and target species for all the files
+    paths_split <- stringr::str_split_fixed(vect_paf_files, "/", Inf)
+    names_queries <- stringr::str_split_fixed(paths_split[, ncol(paths_split)],
+                                              "_", 2)[, 1]
+    paths_split_reduced <- paths_split[, ncol(paths_split)] %>%
+      stringr::str_remove_all("aligned_on_") %>%
+      stringr::str_split_fixed("_", 2)
+    names_targets <- stringr::str_split_fixed(paths_split_reduced[, 2], "\\.", 2)[, 1]
+
+  }else{
+    if ("paths" %not_in% names(dir_name)){
+      stop("Please make sure that the provided data frame contains the column 'paths'.")
+    }
+    if (any(c("reference_species", "aligned_species") %not_in% names(dir_name))){
+      stop("Please make sure that the names of the species are provided in the columns named 'reference_species' and 'aligned_species'.")
+    }
+    if (!all(file.exists(dir_name$paths))){
+      non_existing_paths <- dir_names$paths[!file.exists(dir_name$paths)]
+      stop(paste("Please make sure that the provided paths exist. The following paths do not seem to exist:", paste(non_existing_paths, collapse = ", ")))
+    }
+
+    vect_paf_files <- dir_name$paths
+    names_queries <- dir_name$aligned_species
+    names_targets <- dir_name$reference_species
+  }
 
   # Import the paf files
-  lapply(vect_paf_files, import_paf) %>%
+  paf_files <- lapply(vect_paf_files, import_paf) %>%
     # And add the names of the species (query and target) to the tables
     lapply(names_queries, function(name_query, list_vect_files, names_queries, names_targets){
       index_query <- which(name_query == names_queries)
@@ -469,8 +421,18 @@ import_paf_from_folder <- function(dir_name){
     }, .,
     names_queries,
     names_targets) %>%
-    dplyr::bind_rows() %>%
-    return()
+    dplyr::bind_rows()
+
+  # Rename the chromosomes depending on the patterns inside of the names (either dots or vertical bars)
+  if (chrom_name_contains_pattern(paf_files, "\\|", "qname") | chrom_name_contains_pattern(paf_files, "\\|", "tname")){
+    paf_files <- paf_files %>%
+      dplyr::mutate(across(contains("name"), ~ stringr::str_split_fixed(., "\\|", 3)[, 2]))
+  }else if (chrom_name_contains_pattern(paf_files, "\\.", "qname") | chrom_name_contains_pattern(paf_files, "\\.", "tname")){
+    paf_files <- paf_files %>%
+      dplyr::mutate(across(contains("name"), ~ stringr::str_split_fixed(., "\\.", 2)[, 1]))
+  }
+
+  return(paf_files)
 }
 
 #################################
@@ -730,13 +692,15 @@ is_chromosome_pair_reversed <- function(all_alignments, chromosome_1, chromosome
 get_chromosome_names_all_species <- function(all_chromosomes, correspondences_chromosomes, all_alignments, reference_chromosomes = NULL){
   # Check if there is a reference species. If not, one will be appointed
   if (is.null(reference_chromosomes)){
-    reference_chromosomes <- define_reference_for_chromosome_naming(all_chromosomes)
+    reference_chromosomes <- define_reference_for_chromosome_naming(all_chromosomes, correspondences_chromosomes)
   }
 
   # Get the name of the reference species given as input or appointed
   reference_species <- reference_chromosomes %>%
     dplyr::pull(Species) %>%
     unique()
+
+  initial_ref_species <- reference_species
 
   # Get all the pair of species that can be considered
   pairs_species <- correspondences_chromosomes %>%
@@ -771,7 +735,7 @@ get_chromosome_names_all_species <- function(all_chromosomes, correspondences_ch
   # Correct the names of the chromosomes after the calling (especially for
   # fused chromosomes)
   named_chromosomes_all_sps %>%
-    rename_chromosomes_after_calling(correspondences_chromosomes, all_alignments) %>%
+    rename_chromosomes_after_calling(correspondences_chromosomes, all_alignments, initial_ref_species) %>%
     dplyr::left_join(all_chromosomes, by = c("Chromosome", "Species")) %>%
     return()
 }
@@ -789,6 +753,10 @@ get_chromosome_names_all_species <- function(all_chromosomes, correspondences_ch
 #' the name of the chromosomes that was given to them when they were
 #' assembled, the length of the chromosomes and the species to which the
 #' chromosomes belong.
+#' @param correspondences_chromosomes This data frame contains four columns:
+#' the species of the query and target species and the names of the corresponding
+#' chromosomes from these two species. This table is the output of the `get_corresponding_chromosomes_species`
+#' function.
 #' @param prefix This string is the beginning of the name of the chromosomes.
 #' Its default is "Chrom" to have "Chrom_1", ..., but it can be changed to
 #' any string. Usual ones are "Chr", "Chrom" or "LG".
@@ -805,19 +773,87 @@ get_chromosome_names_all_species <- function(all_chromosomes, correspondences_ch
 #'
 #' define_reference_for_chromosome_naming(names_of_chromosomes)
 #' define_reference_for_chromosome_naming(names_of_chromosomes, prefix = "LG")
-define_reference_for_chromosome_naming <- function(all_chromosomes, prefix = "Chrom"){
+define_reference_for_chromosome_naming <- function(all_chromosomes, correspondences_chromosomes = NULL, prefix = "Chrom"){
   # Define the species to use as reference
   reference_species <- all_chromosomes %>%
     dplyr::arrange(Species) %>%
     dplyr::slice(1) %>%
     dplyr::pull(Species)
 
-  all_chromosomes %>%
+  all_chromosomes <- all_chromosomes %>%
     dplyr::filter(Species == reference_species) %>%
-    dplyr::arrange(dplyr::desc(Length)) %>%
+    dplyr::arrange(dplyr::desc(Length))
+
+  if (is.null(correspondences_chromosomes)){
+    reference_naming_chromosomes <- all_chromosomes %>%
     dplyr::mutate(Chromosome_name = paste(prefix, 1:nrow(.), sep = "_")) %>%
-    dplyr::select(Chromosome, Chromosome_name, Species) %>%
-    return()
+    dplyr::select(Chromosome, Chromosome_name, Species)
+  }else{
+    vect_chroms <- all_chromosomes %>%
+      dplyr::pull(Chromosome)
+
+    reference_naming_chromosomes <- vector(mode = "list", length(vect_chroms))
+    chromosome_number <- 1
+    counter <- 1
+    already_added_chroms <- c()
+    while (counter <= length(vect_chroms)){
+      chrom <- vect_chroms[counter]
+      name_column_ref_chromosome <- (correspondences_chromosomes %>%
+          dplyr::select(tidyselect::where(~ any(.x == chrom))) %>%
+          names())[1]           # We arbitrarily choose one of the two columns if
+      # there are more than one column that can be selected.
+
+      name_column_corresp_chromosome <- ifelse(name_column_ref_chromosome == "tname", "qname", "tname")
+
+      corresponding_chromosome_name <- correspondence_chroms %>%
+        dplyr::filter(!!rlang::sym(name_column_ref_chromosome) == chrom) %>%
+        # Take only at maximum one corresponding chromosome. As we are looking
+        # only if the chromosome is split in two in the reference, the other
+        # direction will be adressed later in the pipeline.
+        dplyr::slice(1) %>%
+        dplyr::pull(!!rlang::sym(name_column_corresp_chromosome))
+
+
+      nb_chrom_correspondences <- correspondences_chromosomes %>%
+        dplyr::filter(!!rlang::sym(name_column_corresp_chromosome) == corresponding_chromosome_name) %>%
+        nrow()
+
+      if (nb_chrom_correspondences > 1){
+        reference_naming_chromosomes[[counter]] <- data.frame(
+          "Chromosome" = chrom,
+          "Chromosome_name" = paste(prefix, chromosome_number, sep = "_"),
+          "Species" = reference_species
+        )
+        if (corresponding_chromosome_name %not_in% already_added_chroms){
+          chromosome_number <- chromosome_number - 1
+        }
+        already_added_chroms <- c(already_added_chroms, corresponding_chromosome_name) %>%
+          unique()
+      }else{
+        reference_naming_chromosomes[[counter]] <- data.frame(
+          "Chromosome" = chrom,
+          "Chromosome_name" = paste(prefix, chromosome_number, sep = "_"),
+          "Species" = reference_species
+        )
+      }
+      chromosome_number <- chromosome_number + 1
+      counter <- counter + 1
+    }
+
+    reference_naming_chromosomes <- reference_naming_chromosomes %>%
+      dplyr::bind_rows() %>%
+      dplyr::group_by(Chromosome_name) %>%
+      dplyr::add_count() %>%
+      dplyr::mutate(toto = letters[dplyr::row_number()]) %>%
+      dplyr::ungroup() %>%
+      dplyr::mutate(Chromosome_name = dplyr::case_when(
+        n > 1 ~ paste(Chromosome_name, toto, sep = "."),
+        TRUE ~ Chromosome_name
+      )) %>%
+      dplyr::select(-c(toto, n))
+  }
+
+  return(reference_naming_chromosomes)
 }
 
 #' Go over all the pair of species given as parameter to name the chromosomes
@@ -1039,6 +1075,7 @@ get_chromosome_names_using_reference <- function(correspondences_chromosomes, re
 #' reference species.
 #' @param all_alignments This data frame contains all the coordinates of the aligned
 #' genomes on one another.
+#' @param ref_species Name of the species used as reference to name chromosomes.
 #'
 #' @returns A data frame that contains the new names of the chromosomes for all
 #' chromosomes for all species.
@@ -1057,7 +1094,7 @@ get_chromosome_names_using_reference <- function(correspondences_chromosomes, re
 #' rename_chromosomes_after_calling(example_rename_chromosomes,
 #'                                  correspondences_chromosomes,
 #'                                  all_alignments)
-rename_chromosomes_after_calling <- function(temp_names_chroms, chromosome_correspondences, all_alignments){
+rename_chromosomes_after_calling <- function(temp_names_chroms, chromosome_correspondences, all_alignments, ref_species){
   # Get the names of the species
   species_names <- temp_names_chroms %>%
     dplyr::pull(Species) %>%
@@ -1068,7 +1105,8 @@ rename_chromosomes_after_calling <- function(temp_names_chroms, chromosome_corre
          FUN = rename_chrom_for_one_species,
          temp_names_chroms,
          chromosome_correspondences,
-         all_alignments) %>%
+         all_alignments,
+         ref_species) %>%
     dplyr::bind_rows() %>%
     return()
 
@@ -1092,6 +1130,7 @@ rename_chromosomes_after_calling <- function(temp_names_chroms, chromosome_corre
 #' reference species.
 #' @param all_alignments This data frame contains all the coordinates of the aligned
 #' genomes on one another.
+#' @param ref_species Name of the species used as reference for the analysis.
 #'
 #' @returns A data frame containing the new names of the chromosomes for the
 #' focal species.
@@ -1111,7 +1150,7 @@ rename_chromosomes_after_calling <- function(temp_names_chroms, chromosome_corre
 #'
 #' rename_chrom_for_one_species(species_name, example_rename_chromosomes,
 #'                              correspondences_chromosomes, all_alignments)
-rename_chrom_for_one_species <- function(species_name, temp_names_chroms, chromosome_correspondences, all_alignments){
+rename_chrom_for_one_species <- function(species_name, temp_names_chroms, chromosome_correspondences, all_alignments, ref_species){
   # Filter the names of chromosomes for one species
   temp_names_for_sp <- temp_names_chroms %>%
     dplyr::filter(Species == species_name)
@@ -1132,9 +1171,9 @@ rename_chrom_for_one_species <- function(species_name, temp_names_chroms, chromo
                                    rename_fissionned_chroms,
                                    temp_names_for_sp,
                                    all_alignments,
-                                   chromosome_correspondences) %>%
+                                   chromosome_correspondences,
+                                   ref_species) %>%
     dplyr::bind_rows()
-
 
   # Then rename the chromosomes that are fused (split in two in the reference
   # species and are only one chromosomes in the focal species)
@@ -1173,6 +1212,7 @@ rename_chrom_for_one_species <- function(species_name, temp_names_chroms, chromo
 #' @param chromosome_correspondences This data frame contains the
 #' correspondences between the chromosomes of the focal species and the
 #' reference species.
+#' @param ref_species Name of the species used as reference to name the chromosomes.
 #'
 #' @return A data frame containing the new names of the fissionned chromosomes
 #' @export
@@ -1196,7 +1236,7 @@ rename_chrom_for_one_species <- function(species_name, temp_names_chroms, chromo
 #'rename_fissionned_chroms("LG_3", temp_names_for_sp, all_alignments,
 #'                         correspondences_chromosomes)
 #'
-rename_fissionned_chroms <- function(chromosome_name, temp_names_for_sp, all_alignments, chromosome_correspondences){
+rename_fissionned_chroms <- function(chromosome_name, temp_names_for_sp, all_alignments, chromosome_correspondences, ref_species){
   # First, filter the data to keep only the names of chromosomes for the focal species.
   temp_names_for_sp_for_chr <- temp_names_for_sp %>%
     dplyr::filter(Chromosome_name == chromosome_name)
@@ -1206,7 +1246,7 @@ rename_fissionned_chroms <- function(chromosome_name, temp_names_for_sp, all_ali
     final_names_chromosomes <- temp_names_for_sp_for_chr
   }else{
     final_names_chromosomes <- temp_names_for_sp_for_chr %>%
-      rename_portions_of_chromosomes_fusion(all_alignments, chromosome_correspondences)
+      rename_portions_of_chromosomes_fusion(all_alignments, chromosome_correspondences, ref_species)
   }
   return(final_names_chromosomes)
 }
@@ -1298,6 +1338,7 @@ rename_fused_chromosomes <- function(assembly_name, temp_names_for_sp){
 #' @param chromosome_correspondences This data frame contains the correspondences
 #' between chromosomes of the two species. It is the output of the `get_corresponding_chromosomes_species`
 #' function.
+#' @param ref_species Name of the species used as reference to name the chromosomes.
 #'
 #' @returns A data frame containing the new names of the chromosomes
 #' @export
@@ -1325,31 +1366,48 @@ rename_fused_chromosomes <- function(assembly_name, temp_names_for_sp){
 #' rename_portions_of_chromosomes_fusion(temp_names_for_sp_for_chr,
 #'                                       all_alignments,
 #'                                       correspondences_chromosomes)
-rename_portions_of_chromosomes_fusion <- function(temp_names_for_sp_for_chr, all_alignments, chromosome_correspondences){
+rename_portions_of_chromosomes_fusion <- function(temp_names_for_sp_for_chr, all_alignments, chromosome_correspondences, ref_species){
   # First we compute the mean mapping position of all the chromosomes of species
   # B that map on one chromosome of species A
+  example_chromosome <- temp_names_for_sp_for_chr$Chromosome[1]
+
+  column_to_fuse_on <- chromosome_correspondences %>%
+    dplyr::select(tidyselect::where(~ any(.x == example_chromosome))) %>%
+    names()
+
+  if (length(column_to_fuse_on) > 1){
+    column_to_fuse_on <- chromosome_correspondences %>%
+      dplyr::filter((qname == example_chromosome & target == ref_species) | (tname == example_chromosome & query == ref_species)) %>%
+      dplyr::select(tidyselect::where(~ any(.x == example_chromosome))) %>%
+      names()
+  }
+
+  other_column <- ifelse(column_to_fuse_on == "tname", "qname", "tname")
+
+  column_on_which_to_do_computation <- ifelse(grepl("t", column_to_fuse_on), "qstart", "tstart")
+
   positions_to_where_chroms_map <- temp_names_for_sp_for_chr %>%
-    dplyr::left_join(chromosome_correspondences, by = dplyr::join_by("Chromosome" == "qname")) %>%
-    dplyr::left_join(all_alignments, by = dplyr::join_by("Chromosome" == "qname", "tname", "query", "target")) %>%
-    dplyr::group_by(Chromosome, tname, query, target) %>%
-    dplyr::summarize(mean_map = mean(tstart),
+    dplyr::left_join(chromosome_correspondences, by = dplyr::join_by("Chromosome" == !!rlang::sym(column_to_fuse_on))) %>%
+    dplyr::left_join(all_alignments, by = dplyr::join_by("Chromosome" == !!rlang::sym(column_to_fuse_on), !!rlang::sym(other_column), "query", "target")) %>%
+    dplyr::group_by(Chromosome, !!rlang::sym(other_column), query, target) %>%
+    dplyr::summarize(mean_map = mean(!!rlang::sym(column_on_which_to_do_computation), na.rm = TRUE),
                      .groups = "drop_last") %>%
     dplyr::ungroup() %>%
-    dplyr::rename(qname = Chromosome)
+    dplyr::rename(!!rlang::sym(column_to_fuse_on) := Chromosome)
 
   # We get the names of the considered chromosomes (both the name given in the
   # analysis and the names given in the assembly)
   name_chrom_given <- temp_names_for_sp_for_chr %>%
     dplyr::pull(Chromosome_name) %>%
-    unique
+    unique()
 
   name_first_chrom_assembly <- positions_to_where_chroms_map %>%
     dplyr::filter(mean_map == min(mean_map)) %>%
-    dplyr::pull(qname)
+    dplyr::pull(!!rlang::sym(column_to_fuse_on))
 
   name_second_chrom_assembly <- positions_to_where_chroms_map %>%
     dplyr::filter(mean_map == max(mean_map)) %>%
-    dplyr::pull(qname)
+    dplyr::pull(!!rlang::sym(column_to_fuse_on))
 
   # Then, we consider how to rename the chromosomes given their original name
   if (name_first_chrom_assembly != name_second_chrom_assembly){
@@ -1501,14 +1559,16 @@ get_corresponding_chromosomes_species <- function(all_alignments, all_chromosome
 
   # This allows to check that the correspondences are computed only on the
   # specified chromosomes
-  if (any(names_chromosomes_alignments %not_in% all_chromosomes$Chromosome)){
+  if (all(names_chromosomes_alignments %not_in% all_chromosomes$Chromosome)){
+    stop("Please make sure that the assembly names of the chromosomes match between the two provided data frames.")
+  }else if (any(names_chromosomes_alignments %not_in% all_chromosomes$Chromosome)){
     message('Keeping only chromosomes in the "names_of_chromosomes" table.')
     all_alignments <- all_alignments %>%
       dplyr::filter(qname %in% all_chromosomes$Chromosome,
                     tname %in% all_chromosomes$Chromosome)
   }
   if (nrow(all_alignments) == 0){
-    stop("Please make sure that the names of the chromosomes match in the two specified tables.")
+    stop("Please make sure that the assembly names of the chromosomes match between the two provided data frames.")
   }
   # Get the correspondences between chromosomes of the different species
   all_alignments %>%
@@ -1741,7 +1801,18 @@ get_species_number_according_to_order <- function(temp_data_to_plot, order_speci
   # Get the names of the species to which we want to add the corresponding number
   species_names <- temp_data_to_plot %>%
     dplyr::pull(Species) %>%
-    unique
+    unique()
+  if (all(species_names %not_in% order_species) & all(species_names %not_in% order_species)){
+    stop("Please make sure that the names of the species that are provided in the 'alignments', 'name_of_chromosomes' and 'order_species' arguments match.")
+  }
+  if (any(species_names %not_in% order_species) & any(species_names %not_in% order_species)){
+    warning("Warning: only species that are spelled the same in the 'alignments', 'name_of_chromosomes' tables compared to the 'order_species' vector will be kept.")
+    temp_data_to_plot <- temp_data_to_plot %>%
+      dplyr::filter(Species %in% order_species)
+    species_names <- temp_data_to_plot %>%
+      dplyr::pull(Species) %>%
+      unique()
+  }
 
   # For each species names, we add the corresponding number with this function
   lapply(order_species, function(x, df, vect_order_species){
@@ -1800,11 +1871,22 @@ get_species_number_according_to_order <- function(temp_data_to_plot, order_speci
 #' compute_cumulative_positions_along_genome(example_data_to_plot,
 #'                                           example_names_of_chromosomes)
 compute_cumulative_positions_along_genome <- function(temp_data_to_plot, name_of_chromosomes){
+
+  chromosome_names <- name_of_chromosomes %>%
+    dplyr::pull(Chromosome) %>%
+    unique()
+  # Check if the names of the species are the same
+  if (all(chromosome_names %not_in% temp_data_to_plot$qname) & all(chromosome_names %not_in% temp_data_to_plot$tname)){
+    stop("Please make sure that the names of the chromosomes that are provided in the 'alignments' and 'name_of_chromosomes' arguments match.")
+  }
+  if (any(chromosome_names %not_in% temp_data_to_plot$qname) & any(chromosome_names %not_in% temp_data_to_plot$tname)){
+    warning("Warning: only chromosomes that are spelled differently in the 'name_of_chromosomes' table compared to the 'alignments' table will be removed.")
+  }
   temp_data_to_plot %>%
     # Compute the cumulative position for the query
     dplyr::left_join(name_of_chromosomes %>%
                        dplyr::select(Chromosome, Species, Cumul_position_start_chromosome) %>%
-                       unique,
+                       unique(),
                      by = dplyr::join_by("qname" == "Chromosome", "query" == "Species")) %>%
     dplyr::mutate(qstart = qstart + Cumul_position_start_chromosome,
                   qend = qend + Cumul_position_start_chromosome) %>%
@@ -1936,6 +2018,12 @@ make_synteny_plot <- function(alignments, name_of_chromosomes,
   names(order_species) <- as.character(1:length(order_species))
   y_scale <- ggplot2::scale_y_discrete(labels = order_species)
 
+  name_of_chromosomes <- name_of_chromosomes %>%
+    dplyr::group_by(Species) %>%
+    dplyr::arrange(Chromosome_name) %>%
+    dplyr::mutate(Cumul_position_start_chromosome = cumsum(lag(Length + 1, default = 0))) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(Center_chrom = round(Cumul_position_start_chromosome + Length/2))
 
   # Get the value of the gap to leave between chromosomes
   order_magnitude_length_genome <- name_of_chromosomes %>%
@@ -1981,12 +2069,16 @@ make_synteny_plot <- function(alignments, name_of_chromosomes,
                              unique())) %>%
     tidyr::pivot_longer(cols = c(qstart, qend, tstart, tend), names_to = "name", values_to = "delims_polygon") %>%
     tidyr::pivot_longer(cols = c(query, target), names_to = "direction", values_to = "Species") %>%
-    dplyr::filter((grepl("^q", name) & grepl("^q", direction)) | (grepl("^t", name) & grepl("^t", direction)))
-  print(p)
-  p <- p %>%
+    dplyr::filter((grepl("^q", name) & grepl("^q", direction)) | (grepl("^t", name) & grepl("^t", direction)))%>%
     unique() %>%
     dplyr::select(-Cumul_position_start_chromosome) %>%
-    get_species_number_according_to_order(order_species) %>%
+    get_species_number_according_to_order(order_species)
+
+  if (nrow(p) < 1){
+    stop("There are no chromosome names or species names in common between the 'alignments', 'name_of_chromosomes' and 'order_species' arguments. Plase make sure that you don't have any spelling mistakes and that you have selected the right species/chromosomes.")
+  }
+
+  p <- p %>%
     dplyr::group_by(Position) %>%
     # This also means that we have to rearrange the data in a special way
     arrange_for_polygons() %>%
@@ -2007,7 +2099,7 @@ make_synteny_plot <- function(alignments, name_of_chromosomes,
   p <- p +
     ggplot2::geom_rect(data = delimitations_chromosomes,
                        ggplot2::aes(xmin = start_chrom, xmax = End_chromosome,
-                           ymin = nb_species - 0.001, ymax = nb_species + 0.001,
+                           ymin = nb_species - 0.05, ymax = nb_species + 0.05,
                            fill = Chromosome_name, group = Group_id),
                        colour = "black", lwd = 1.2, linejoin = "round", lineend = "round") +
     # We finish the plot with the names of the chromosomes

@@ -4,13 +4,16 @@
 \alias{chrom_name_contains_pattern}
 \title{Checks if the chromosome name contains a specified pattern}
 \usage{
-chrom_name_contains_pattern(df, pattern)
+chrom_name_contains_pattern(df, pattern, colName)
 }
 \arguments{
 \item{df}{This data frame has to contain the column \code{Chromosome}}
 
 \item{pattern}{This string is the pattern to look for in the \code{Chromosome}
 column}
+
+\item{colName}{String containing the name of the column in which to look for
+the pattern.}
 }
 \value{
 Boolean: \code{TRUE} if the chromosome name contains the pattern and
@@ -24,5 +27,5 @@ from the specified data frame)
 \examples{
 df1 <- data.frame("Chromosome" = c("Chrom_1", "Chrom_2", "Chrom_3"), "Length" = c(10, 20, 250))
 df1
-chrom_name_contains_pattern(df1, "_")
+chrom_name_contains_pattern(df1, "_", "Chromosome")
 }

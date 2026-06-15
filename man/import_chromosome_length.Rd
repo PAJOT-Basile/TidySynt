@@ -4,10 +4,13 @@
 \alias{import_chromosome_length}
 \title{Import the names and lengths of chromosome for one species}
 \usage{
-import_chromosome_length(path)
+import_chromosome_length(path, df = NULL)
 }
 \arguments{
-\item{path}{Path to where the file is stored.}
+\item{path}{Path to where the reference genome is stored.}
+
+\item{df}{The data frame containing the names of the species and the paths to
+the reference genomes of these species. Default = \code{NULL}.}
 }
 \value{
 A data frame containing the name of the chromosome in one column
@@ -15,13 +18,11 @@ and its length in the other.
 }
 \description{
 This function allows to import the names and lengths of chromosomes from
-".dict" or ".fai" files. It also allows to simplify names of chromosomes
-that might have a dot or a vertical line ("|").
+.fai" files. It also allows to simplify names of chromosomes that might have
+a dot or a vertical line ("|").
 }
 \examples{
 fai_file <- "TidySynt/extdata/refgenome/Jaera_albifrons_chromosomes.fasta.fai"
-dict_file <- "TidySynt/extdata/refgenome/Jaera_albifrons_chromosomes.dict"
 
 import_chromosome_length(fai_file)
-import_chromosome_length(dict_file)
 }

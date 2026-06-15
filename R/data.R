@@ -157,3 +157,16 @@
 #'    \item{Species}{Species name.}
 #' }
 "reference_chromosomes"
+
+#' Paths to access reference genomes of different species
+#'
+#' Example of a data frame that stores the paths to the reference genomes of
+#' different species that are specified here.
+#' @format ## `paths_to_genomes`
+#' A data frame with 2 rows and 2 columns
+#' \describe{
+#'  \item{Species}{Species name.}
+#'  \item{paths}{Paths to the reference genome of each species}
+#' }
+#'
+"paths_to_genomes"
