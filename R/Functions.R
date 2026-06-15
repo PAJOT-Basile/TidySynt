@@ -695,13 +695,15 @@ is_chromosome_pair_reversed <- function(all_alignments, chromosome_1, chromosome
 get_chromosome_names_all_species <- function(all_chromosomes, correspondences_chromosomes, all_alignments, reference_chromosomes = NULL){
   # Check if there is a reference species. If not, one will be appointed
   if (is.null(reference_chromosomes)){
-    reference_chromosomes <- define_reference_for_chromosome_naming(all_chromosomes)
+    reference_chromosomes <- define_reference_for_chromosome_naming(all_chromosomes, correspondences_chromosomes)
   }
 
   # Get the name of the reference species given as input or appointed
   reference_species <- reference_chromosomes %>%
     dplyr::pull(Species) %>%
     unique()
+
+  initial_ref_species <- reference_species
 
   # Get all the pair of species that can be considered
   pairs_species <- correspondences_chromosomes %>%
@@ -736,7 +738,7 @@ get_chromosome_names_all_species <- function(all_chromosomes, correspondences_ch
   # Correct the names of the chromosomes after the calling (especially for
   # fused chromosomes)
   named_chromosomes_all_sps %>%
-    rename_chromosomes_after_calling(correspondences_chromosomes, all_alignments) %>%
+    rename_chromosomes_after_calling(correspondences_chromosomes, all_alignments, initial_ref_species) %>%
     dplyr::left_join(all_chromosomes, by = c("Chromosome", "Species")) %>%
     return()
 }
@@ -770,19 +772,87 @@ get_chromosome_names_all_species <- function(all_chromosomes, correspondences_ch
 #'
 #' define_reference_for_chromosome_naming(names_of_chromosomes)
 #' define_reference_for_chromosome_naming(names_of_chromosomes, prefix = "LG")
-define_reference_for_chromosome_naming <- function(all_chromosomes, prefix = "Chrom"){
+define_reference_for_chromosome_naming <- function(all_chromosomes, correspondences_chromosomes = NULL, prefix = "Chrom"){
   # Define the species to use as reference
   reference_species <- all_chromosomes %>%
     dplyr::arrange(Species) %>%
     dplyr::slice(1) %>%
     dplyr::pull(Species)
 
-  all_chromosomes %>%
+  all_chromosomes <- all_chromosomes %>%
     dplyr::filter(Species == reference_species) %>%
-    dplyr::arrange(dplyr::desc(Length)) %>%
+    dplyr::arrange(dplyr::desc(Length))
+
+  if (is.null(correspondences_chromosomes)){
+    reference_naming_chromosomes <- all_chromosomes %>%
     dplyr::mutate(Chromosome_name = paste(prefix, 1:nrow(.), sep = "_")) %>%
-    dplyr::select(Chromosome, Chromosome_name, Species) %>%
-    return()
+    dplyr::select(Chromosome, Chromosome_name, Species)
+  }else{
+    vect_chroms <- all_chromosomes %>%
+      dplyr::pull(Chromosome)
+
+    reference_naming_chromosomes <- vector(mode = "list", length(vect_chroms))
+    chromosome_number <- 1
+    counter <- 1
+    already_added_chroms <- c()
+    while (counter <= length(vect_chroms)){
+      chrom <- vect_chroms[counter]
+      name_column_ref_chromosome <- (correspondences_chromosomes %>%
+          dplyr::select(tidyselect::where(~ any(.x == chrom))) %>%
+          names())[1]           # We arbitrarily choose one of the two columns if
+      # there are more than one column that can be selected.
+
+      name_column_corresp_chromosome <- ifelse(name_column_ref_chromosome == "tname", "qname", "tname")
+
+      corresponding_chromosome_name <- correspondence_chroms %>%
+        dplyr::filter(!!sym(name_column_ref_chromosome) == chrom) %>%
+        # Take only at maximum one corresponding chromosome. As we are looking
+        # only if the chromosome is split in two in the reference, the other
+        # direction will be adressed later in the pipeline.
+        dplyr::slice(1) %>%
+        dplyr::pull(!!sym(name_column_corresp_chromosome))
+
+
+      nb_chrom_correspondences <- correspondences_chromosomes %>%
+        dplyr::filter(!!sym(name_column_corresp_chromosome) == corresponding_chromosome_name) %>%
+        nrow()
+
+      if (nb_chrom_correspondences > 1){
+        reference_naming_chromosomes[[counter]] <- data.frame(
+          "Chromosome" = chrom,
+          "Chromosome_name" = paste(prefix, chromosome_number, sep = "_"),
+          "Species" = reference_species
+        )
+        if (corresponding_chromosome_name %not_in% already_added_chroms){
+          chromosome_number <- chromosome_number - 1
+        }
+        already_added_chroms <- c(already_added_chroms, corresponding_chromosome_name) %>%
+          unique()
+      }else{
+        reference_naming_chromosomes[[counter]] <- data.frame(
+          "Chromosome" = chrom,
+          "Chromosome_name" = paste(prefix, chromosome_number, sep = "_"),
+          "Species" = reference_species
+        )
+      }
+      chromosome_number <- chromosome_number + 1
+      counter <- counter + 1
+    }
+
+    reference_naming_chromosomes <- reference_naming_chromosomes %>%
+      dplyr::bind_rows() %>%
+      dplyr::group_by(Chromosome_name) %>%
+      dplyr::add_count() %>%
+      dplyr::mutate(toto = letters[dplyr::row_number()]) %>%
+      dplyr::ungroup() %>%
+      dplyr::mutate(Chromosome_name = dplyr::case_when(
+        n > 1 ~ paste(Chromosome_name, toto, sep = "."),
+        TRUE ~ Chromosome_name
+      )) %>%
+      dplyr::select(-c(toto, n))
+  }
+
+  return(reference_naming_chromosomes)
 }
 
 #' Go over all the pair of species given as parameter to name the chromosomes
@@ -1022,7 +1092,7 @@ get_chromosome_names_using_reference <- function(correspondences_chromosomes, re
 #' rename_chromosomes_after_calling(example_rename_chromosomes,
 #'                                  correspondences_chromosomes,
 #'                                  all_alignments)
-rename_chromosomes_after_calling <- function(temp_names_chroms, chromosome_correspondences, all_alignments){
+rename_chromosomes_after_calling <- function(temp_names_chroms, chromosome_correspondences, all_alignments, ref_species){
   # Get the names of the species
   species_names <- temp_names_chroms %>%
     dplyr::pull(Species) %>%
@@ -1033,7 +1103,8 @@ rename_chromosomes_after_calling <- function(temp_names_chroms, chromosome_corre
          FUN = rename_chrom_for_one_species,
          temp_names_chroms,
          chromosome_correspondences,
-         all_alignments) %>%
+         all_alignments,
+         ref_species) %>%
     dplyr::bind_rows() %>%
     return()
 
@@ -1076,7 +1147,7 @@ rename_chromosomes_after_calling <- function(temp_names_chroms, chromosome_corre
 #'
 #' rename_chrom_for_one_species(species_name, example_rename_chromosomes,
 #'                              correspondences_chromosomes, all_alignments)
-rename_chrom_for_one_species <- function(species_name, temp_names_chroms, chromosome_correspondences, all_alignments){
+rename_chrom_for_one_species <- function(species_name, temp_names_chroms, chromosome_correspondences, all_alignments, ref_species){
   # Filter the names of chromosomes for one species
   temp_names_for_sp <- temp_names_chroms %>%
     dplyr::filter(Species == species_name)
@@ -1097,9 +1168,9 @@ rename_chrom_for_one_species <- function(species_name, temp_names_chroms, chromo
                                    rename_fissionned_chroms,
                                    temp_names_for_sp,
                                    all_alignments,
-                                   chromosome_correspondences) %>%
+                                   chromosome_correspondences,
+                                   ref_species) %>%
     dplyr::bind_rows()
-
 
   # Then rename the chromosomes that are fused (split in two in the reference
   # species and are only one chromosomes in the focal species)
@@ -1161,7 +1232,7 @@ rename_chrom_for_one_species <- function(species_name, temp_names_chroms, chromo
 #'rename_fissionned_chroms("LG_3", temp_names_for_sp, all_alignments,
 #'                         correspondences_chromosomes)
 #'
-rename_fissionned_chroms <- function(chromosome_name, temp_names_for_sp, all_alignments, chromosome_correspondences){
+rename_fissionned_chroms <- function(chromosome_name, temp_names_for_sp, all_alignments, chromosome_correspondences, ref_species){
   # First, filter the data to keep only the names of chromosomes for the focal species.
   temp_names_for_sp_for_chr <- temp_names_for_sp %>%
     dplyr::filter(Chromosome_name == chromosome_name)
@@ -1171,7 +1242,7 @@ rename_fissionned_chroms <- function(chromosome_name, temp_names_for_sp, all_ali
     final_names_chromosomes <- temp_names_for_sp_for_chr
   }else{
     final_names_chromosomes <- temp_names_for_sp_for_chr %>%
-      rename_portions_of_chromosomes_fusion(all_alignments, chromosome_correspondences)
+      rename_portions_of_chromosomes_fusion(all_alignments, chromosome_correspondences, ref_species)
   }
   return(final_names_chromosomes)
 }
@@ -1290,31 +1361,48 @@ rename_fused_chromosomes <- function(assembly_name, temp_names_for_sp){
 #' rename_portions_of_chromosomes_fusion(temp_names_for_sp_for_chr,
 #'                                       all_alignments,
 #'                                       correspondences_chromosomes)
-rename_portions_of_chromosomes_fusion <- function(temp_names_for_sp_for_chr, all_alignments, chromosome_correspondences){
+rename_portions_of_chromosomes_fusion <- function(temp_names_for_sp_for_chr, all_alignments, chromosome_correspondences, ref_species){
   # First we compute the mean mapping position of all the chromosomes of species
   # B that map on one chromosome of species A
+  example_chromosome <- temp_names_for_sp_for_chr$Chromosome[1]
+
+  column_to_fuse_on <- chromosome_correspondences %>%
+    dplyr::select(tidyselect::where(~ any(.x == example_chromosome))) %>%
+    names()
+
+  if (length(column_to_fuse_on) > 1){
+    column_to_fuse_on <- chromosome_correspondences %>%
+      dplyr::filter((qname == example_chromosome & target == ref_species) | (tname == example_chromosome & query == ref_species)) %>%
+      dplyr::select(tidyselect::where(~ any(.x == example_chromosome))) %>%
+      names()
+  }
+
+  other_column <- ifelse(column_to_fuse_on == "tname", "qname", "tname")
+
+  column_on_which_to_do_computation <- ifelse(grepl("t", column_to_fuse_on), "qstart", "tstart")
+
   positions_to_where_chroms_map <- temp_names_for_sp_for_chr %>%
-    dplyr::left_join(chromosome_correspondences, by = dplyr::join_by("Chromosome" == "qname")) %>%
-    dplyr::left_join(all_alignments, by = dplyr::join_by("Chromosome" == "qname", "tname", "query", "target")) %>%
-    dplyr::group_by(Chromosome, tname, query, target) %>%
-    dplyr::summarize(mean_map = mean(tstart),
+    dplyr::left_join(chromosome_correspondences, by = dplyr::join_by("Chromosome" == !!sym(column_to_fuse_on))) %>%
+    dplyr::left_join(all_alignments, by = dplyr::join_by("Chromosome" == !!sym(column_to_fuse_on), !!sym(other_column), "query", "target")) %>%
+    dplyr::group_by(Chromosome, !!sym(other_column), query, target) %>%
+    dplyr::summarize(mean_map = mean(!!sym(column_on_which_to_do_computation), na.rm = TRUE),
                      .groups = "drop_last") %>%
     dplyr::ungroup() %>%
-    dplyr::rename(qname = Chromosome)
+    dplyr::rename(!!sym(column_to_fuse_on) := Chromosome)
 
   # We get the names of the considered chromosomes (both the name given in the
   # analysis and the names given in the assembly)
   name_chrom_given <- temp_names_for_sp_for_chr %>%
     dplyr::pull(Chromosome_name) %>%
-    unique
+    unique()
 
   name_first_chrom_assembly <- positions_to_where_chroms_map %>%
     dplyr::filter(mean_map == min(mean_map)) %>%
-    dplyr::pull(qname)
+    dplyr::pull(!!sym(column_to_fuse_on))
 
   name_second_chrom_assembly <- positions_to_where_chroms_map %>%
     dplyr::filter(mean_map == max(mean_map)) %>%
-    dplyr::pull(qname)
+    dplyr::pull(!!sym(column_to_fuse_on))
 
   # Then, we consider how to rename the chromosomes given their original name
   if (name_first_chrom_assembly != name_second_chrom_assembly){
@@ -1466,14 +1554,16 @@ get_corresponding_chromosomes_species <- function(all_alignments, all_chromosome
 
   # This allows to check that the correspondences are computed only on the
   # specified chromosomes
-  if (any(names_chromosomes_alignments %not_in% all_chromosomes$Chromosome)){
+  if (all(names_chromosomes_alignments %not_in% all_chromosomes$Chromosome)){
+    stop("Please make sure that the assembly names of the chromosomes match between the two provided data frames.")
+  }else if (any(names_chromosomes_alignments %not_in% all_chromosomes$Chromosome)){
     message('Keeping only chromosomes in the "names_of_chromosomes" table.')
     all_alignments <- all_alignments %>%
       dplyr::filter(qname %in% all_chromosomes$Chromosome,
                     tname %in% all_chromosomes$Chromosome)
   }
   if (nrow(all_alignments) == 0){
-    stop("Please make sure that the names of the chromosomes match in the two specified tables.")
+    stop("Please make sure that the assembly names of the chromosomes match between the two provided data frames.")
   }
   # Get the correspondences between chromosomes of the different species
   all_alignments %>%
@@ -1706,7 +1796,18 @@ get_species_number_according_to_order <- function(temp_data_to_plot, order_speci
   # Get the names of the species to which we want to add the corresponding number
   species_names <- temp_data_to_plot %>%
     dplyr::pull(Species) %>%
-    unique
+    unique()
+  if (all(species_names %not_in% order_species) & all(species_names %not_in% order_species)){
+    stop("Please make sure that the names of the species that are provided in the 'alignments', 'name_of_chromosomes' and 'order_species' arguments match.")
+  }
+  if (any(species_names %not_in% order_species) & any(species_names %not_in% order_species)){
+    warning("Warning: only species that are spelled the same in the 'alignments', 'name_of_chromosomes' tables compared to the 'order_species' vector will be kept.")
+    temp_data_to_plot <- temp_data_to_plot %>%
+      dplyr::filter(Species %in% order_species)
+    species_names <- temp_data_to_plot %>%
+      dplyr::pull(Species) %>%
+      unique()
+  }
 
   # For each species names, we add the corresponding number with this function
   lapply(order_species, function(x, df, vect_order_species){
@@ -1765,11 +1866,22 @@ get_species_number_according_to_order <- function(temp_data_to_plot, order_speci
 #' compute_cumulative_positions_along_genome(example_data_to_plot,
 #'                                           example_names_of_chromosomes)
 compute_cumulative_positions_along_genome <- function(temp_data_to_plot, name_of_chromosomes){
+
+  chromosome_names <- name_of_chromosomes %>%
+    dplyr::pull(Chromosome) %>%
+    unique()
+  # Check if the names of the species are the same
+  if (all(chromosome_names %not_in% temp_data_to_plot$qname) & all(chromosome_names %not_in% temp_data_to_plot$tname)){
+    stop("Please make sure that the names of the chromosomes that are provided in the 'alignments' and 'name_of_chromosomes' arguments match.")
+  }
+  if (any(chromosome_names %not_in% temp_data_to_plot$qname) & any(chromosome_names %not_in% temp_data_to_plot$tname)){
+    warning("Warning: only chromosomes that are spelled differently in the 'name_of_chromosomes' table compared to the 'alignments' table will be removed.")
+  }
   temp_data_to_plot %>%
     # Compute the cumulative position for the query
     dplyr::left_join(name_of_chromosomes %>%
                        dplyr::select(Chromosome, Species, Cumul_position_start_chromosome) %>%
-                       unique,
+                       unique(),
                      by = dplyr::join_by("qname" == "Chromosome", "query" == "Species")) %>%
     dplyr::mutate(qstart = qstart + Cumul_position_start_chromosome,
                   qend = qend + Cumul_position_start_chromosome) %>%
@@ -1901,6 +2013,12 @@ make_synteny_plot <- function(alignments, name_of_chromosomes,
   names(order_species) <- as.character(1:length(order_species))
   y_scale <- ggplot2::scale_y_discrete(labels = order_species)
 
+  name_of_chromosomes <- name_of_chromosomes %>%
+    dplyr::group_by(Species) %>%
+    dplyr::arrange(Chromosome_name) %>%
+    dplyr::mutate(Cumul_position_start_chromosome = cumsum(lag(Length + 1, default = 0))) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(Center_chrom = round(Cumul_position_start_chromosome + Length/2))
 
   # Get the value of the gap to leave between chromosomes
   order_magnitude_length_genome <- name_of_chromosomes %>%
@@ -1946,12 +2064,16 @@ make_synteny_plot <- function(alignments, name_of_chromosomes,
                              unique())) %>%
     tidyr::pivot_longer(cols = c(qstart, qend, tstart, tend), names_to = "name", values_to = "delims_polygon") %>%
     tidyr::pivot_longer(cols = c(query, target), names_to = "direction", values_to = "Species") %>%
-    dplyr::filter((grepl("^q", name) & grepl("^q", direction)) | (grepl("^t", name) & grepl("^t", direction)))
-  print(p)
-  p <- p %>%
+    dplyr::filter((grepl("^q", name) & grepl("^q", direction)) | (grepl("^t", name) & grepl("^t", direction)))%>%
     unique() %>%
     dplyr::select(-Cumul_position_start_chromosome) %>%
-    get_species_number_according_to_order(order_species) %>%
+    get_species_number_according_to_order(order_species)
+
+  if (nrow(p) < 1){
+    stop("There are no chromosome names or species names in common between the 'alignments', 'name_of_chromosomes' and 'order_species' arguments. Plase make sure that you don't have any spelling mistakes and that you have selected the right species/chromosomes.")
+  }
+
+  p <- p %>%
     dplyr::group_by(Position) %>%
     # This also means that we have to rearrange the data in a special way
     arrange_for_polygons() %>%
